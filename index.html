@@ -5,24 +5,130 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Hello There</title>
   <style>
-    html, body {
+    :root {
+      color-scheme: dark;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
       margin: 0;
       padding: 0;
       width: 100%;
-      height: 100%;
-      background: black;
-      overflow: hidden;
+      min-height: 100%;
+      background: #000;
+      font-family: Arial, sans-serif;
     }
 
-    img {
-      width: 100vw;
-      height: 100vh;
-      object-fit: contain;
+    body {
+      overflow-y: auto;
+    }
+
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      grid-auto-rows: 8px;
+      grid-auto-flow: dense;
+      gap: 12px;
+      padding: 16px;
+    }
+
+    .item {
+      border-radius: 8px;
+      overflow: hidden;
+      background: #101010;
+      border: 1px solid #1f1f1f;
+    }
+
+    .item img {
+      width: 100%;
+      height: auto;
       display: block;
+    }
+
+    .empty-state {
+      color: #c9c9c9;
+      text-align: center;
+      padding: 40px 16px;
+      line-height: 1.5;
     }
   </style>
 </head>
 <body>
-  <img src="https://i.ibb.co/v433h6QX/IMG-7740.png" alt="Fullscreen Image" />
+  <main id="gallery" class="gallery" aria-live="polite"></main>
+  <div id="emptyState" class="empty-state" hidden>
+    No valid image URLs found. Add direct image links separated by commas.
+  </div>
+
+  <script>
+    // Fallback list (comma-separated direct links) if URL parameter is not provided.
+    const IMAGE_URLS = "https://i.ibb.co/v433h6QX/IMG-7740.png";
+
+    const gallery = document.getElementById("gallery");
+    const emptyState = document.getElementById("emptyState");
+
+    function getImageUrls() {
+      const params = new URLSearchParams(window.location.search);
+      const queryImages = params.get("images");
+      const source = queryImages && queryImages.trim().length > 0 ? queryImages : IMAGE_URLS;
+
+      return source
+        .split(",")
+        .map((url) => url.trim())
+        .filter(Boolean);
+    }
+
+    function resizeGridItem(item) {
+      const rowHeight = 8;
+      const rowGap = 12;
+      const image = item.querySelector("img");
+      const contentHeight = image.getBoundingClientRect().height;
+      const rowSpan = Math.ceil((contentHeight + rowGap) / (rowHeight + rowGap));
+      item.style.gridRowEnd = `span ${Math.max(rowSpan, 1)}`;
+    }
+
+    function layoutAllItems() {
+      gallery.querySelectorAll(".item").forEach(resizeGridItem);
+    }
+
+    function renderGallery() {
+      const urls = getImageUrls();
+
+      if (urls.length === 0) {
+        emptyState.hidden = false;
+        return;
+      }
+
+      urls.forEach((url, index) => {
+        const item = document.createElement("article");
+        item.className = "item";
+
+        const image = document.createElement("img");
+        image.src = url;
+        image.alt = `Gallery image ${index + 1}`;
+        image.loading = "lazy";
+        image.referrerPolicy = "no-referrer";
+
+        image.addEventListener("load", () => resizeGridItem(item));
+
+        image.addEventListener("error", () => {
+          item.remove();
+          if (gallery.children.length === 0) {
+            emptyState.hidden = false;
+          }
+        });
+
+        item.appendChild(image);
+        gallery.appendChild(item);
+      });
+    }
+
+    window.addEventListener("resize", layoutAllItems);
+
+    renderGallery();
+  </script>
 </body>
 </html>
