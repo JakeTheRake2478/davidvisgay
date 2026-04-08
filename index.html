@@ -5,24 +5,228 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Hello There</title>
   <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      background: black;
-      overflow: hidden;
+    :root {
+      color-scheme: dark;
     }
 
-    img {
-      width: 100vw;
-      height: 100vh;
-      object-fit: contain;
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      min-height: 100%;
+      background: #000;
+      font-family: Arial, sans-serif;
+    }
+
+    body {
+      overflow-y: auto;
+      padding: 12px;
+    }
+
+    .gallery {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .row {
+      display: flex;
+      gap: 12px;
+      width: 100%;
+      align-items: stretch;
+    }
+
+    .item {
+      background: #232323;
+      border: 1px solid #2f2f2f;
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+    }
+
+    .item img {
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
       display: block;
+      object-fit: contain;
+    }
+
+    .empty-state {
+      color: #c9c9c9;
+      text-align: center;
+      padding: 40px 16px;
+      line-height: 1.5;
     }
   </style>
 </head>
 <body>
-  <img src="https://i.ibb.co/v433h6QX/IMG-7740.png" alt="Fullscreen Image" />
+  <main id="gallery" class="gallery" aria-live="polite"></main>
+  <div id="emptyState" class="empty-state" hidden>
+    No valid image URLs found. Add direct image links separated by commas.
+  </div>
+
+  <script>
+    // Fallback list (comma-separated direct links) if URL parameter is not provided.
+    const IMAGE_URLS = "https://i.ibb.co/v433h6QX/IMG-7740.png";
+
+    const GAP = 12;
+    const TARGET_ROW_HEIGHT = 260;
+
+    const gallery = document.getElementById("gallery");
+    const emptyState = document.getElementById("emptyState");
+
+    function getImageUrls() {
+      const params = new URLSearchParams(window.location.search);
+      const queryImages = params.get("images");
+      const source = queryImages && queryImages.trim().length > 0 ? queryImages : IMAGE_URLS;
+
+      return source
+        .split(",")
+        .map((url) => url.trim())
+        .filter(Boolean);
+    }
+
+    function loadImageMeta(url) {
+      return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.loading = "lazy";
+        image.referrerPolicy = "no-referrer";
+
+        image.onload = () => {
+          resolve({
+            url,
+            width: image.naturalWidth,
+            height: image.naturalHeight,
+            aspectRatio: image.naturalWidth / image.naturalHeight,
+          });
+        };
+
+        image.onerror = reject;
+        image.src = url;
+      });
+    }
+
+    function buildRows(images, containerWidth) {
+      if (images.length === 0) {
+        return [];
+      }
+
+      if (images.length === 1) {
+        return [{ images, height: Math.max(window.innerHeight - 24, 240), justified: true }];
+      }
+
+      if (images.length === 2) {
+        return [{ images, height: Math.max(window.innerHeight - 24, 260), justified: true }];
+      }
+
+      const rows = [];
+      let currentRow = [];
+      let aspectSum = 0;
+
+      images.forEach((image, index) => {
+        currentRow.push(image);
+        aspectSum += image.aspectRatio;
+
+        const rowWidthWithoutGaps = containerWidth - GAP * (currentRow.length - 1);
+        const estimatedHeight = rowWidthWithoutGaps / aspectSum;
+        const isLastImage = index === images.length - 1;
+
+        if (estimatedHeight <= TARGET_ROW_HEIGHT || isLastImage) {
+          if (isLastImage && estimatedHeight > TARGET_ROW_HEIGHT * 1.25) {
+            rows.push({
+              images: currentRow,
+              height: TARGET_ROW_HEIGHT,
+              justified: false,
+            });
+          } else {
+            rows.push({
+              images: currentRow,
+              height: Math.max(160, estimatedHeight),
+              justified: true,
+            });
+          }
+
+          currentRow = [];
+          aspectSum = 0;
+        }
+      });
+
+      return rows;
+    }
+
+    function renderRows(rows) {
+      gallery.innerHTML = "";
+
+      rows.forEach((row) => {
+        const rowElement = document.createElement("section");
+        rowElement.className = "row";
+        rowElement.style.height = `${Math.round(row.height)}px`;
+
+        row.images.forEach((image) => {
+          const item = document.createElement("article");
+          item.className = "item";
+
+          if (row.justified) {
+            item.style.flex = `${image.aspectRatio} 1 0`;
+          } else {
+            item.style.flex = `0 0 ${Math.round(row.height * image.aspectRatio)}px`;
+          }
+
+          const img = document.createElement("img");
+          img.src = image.url;
+          img.alt = "Gallery image";
+          img.loading = "lazy";
+          img.referrerPolicy = "no-referrer";
+
+          item.appendChild(img);
+          rowElement.appendChild(item);
+        });
+
+        gallery.appendChild(rowElement);
+      });
+    }
+
+    async function renderGallery() {
+      const urls = getImageUrls();
+      emptyState.hidden = true;
+      gallery.innerHTML = "";
+
+      if (urls.length === 0) {
+        emptyState.hidden = false;
+        return;
+      }
+
+      const results = await Promise.allSettled(urls.map(loadImageMeta));
+      const validImages = results
+        .filter((result) => result.status === "fulfilled")
+        .map((result) => result.value);
+
+      if (validImages.length === 0) {
+        emptyState.hidden = false;
+        return;
+      }
+
+      const rows = buildRows(validImages, gallery.clientWidth || window.innerWidth - 24);
+      renderRows(rows);
+    }
+
+    let resizeTimer;
+    window.addEventListener("resize", () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(renderGallery, 100);
+    });
+
+    renderGallery();
+  </script>
 </body>
 </html>
