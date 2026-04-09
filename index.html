@@ -7,6 +7,10 @@
   <style>
     :root {
       color-scheme: dark;
+      --gap: 12px;
+      --page-padding: 16px;
+      --target-row-height: 240px;
+      --single-image-padding: 0px;
     }
 
     * {
@@ -28,25 +32,58 @@
     }
 
     .gallery {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      grid-auto-rows: 8px;
-      grid-auto-flow: dense;
-      gap: 12px;
-      padding: 16px;
+      width: 100%;
+      padding: var(--page-padding);
+    }
+
+    .gallery.single {
+      padding: var(--single-image-padding);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .single-item {
+      width: 100%;
+      height: 100vh;
+      overflow: hidden;
+      background: #000;
+    }
+
+    .single-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      background: #000;
+    }
+
+    .gallery-row {
+      display: flex;
+      gap: var(--gap);
+      margin-bottom: var(--gap);
+      width: 100%;
+    }
+
+    .gallery-row:last-child {
+      margin-bottom: 0;
     }
 
     .item {
-      border-radius: 8px;
       overflow: hidden;
       background: #101010;
+      border-radius: 8px;
       border: 1px solid #1f1f1f;
+      flex-shrink: 0;
     }
 
     .item img {
       width: 100%;
-      height: auto;
+      height: 100%;
       display: block;
+      object-fit: cover;
+      background: #0a0a0a;
     }
 
     .empty-state {
@@ -54,6 +91,14 @@
       text-align: center;
       padding: 40px 16px;
       line-height: 1.5;
+    }
+
+    @media (max-width: 700px) {
+      :root {
+        --target-row-height: 180px;
+        --gap: 10px;
+        --page-padding: 10px;
+      }
     }
   </style>
 </head>
@@ -64,7 +109,7 @@
   </div>
 
   <script>
-    // Fallback list (comma-separated direct links) if URL parameter is not provided.
+    // Fallback list if URL parameter is not provided.
     const IMAGE_URLS = "https://i.ibb.co/v433h6QX/IMG-7740.png";
 
     const gallery = document.getElementById("gallery");
@@ -81,20 +126,135 @@
         .filter(Boolean);
     }
 
-    function resizeGridItem(item) {
-      const rowHeight = 8;
-      const rowGap = 12;
-      const image = item.querySelector("img");
-      const contentHeight = image.getBoundingClientRect().height;
-      const rowSpan = Math.ceil((contentHeight + rowGap) / (rowHeight + rowGap));
-      item.style.gridRowEnd = `span ${Math.max(rowSpan, 1)}`;
+    function loadImage(url, index) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.src = url;
+        img.alt = `Gallery image ${index + 1}`;
+        img.referrerPolicy = "no-referrer";
+        img.onload = () => {
+          resolve({
+            url,
+            alt: img.alt,
+            width: img.naturalWidth,
+            height: img.naturalHeight,
+            aspectRatio: img.naturalWidth / img.naturalHeight
+          });
+        };
+        img.onerror = reject;
+      });
     }
 
-    function layoutAllItems() {
-      gallery.querySelectorAll(".item").forEach(resizeGridItem);
+    function clearGallery() {
+      gallery.innerHTML = "";
+      gallery.className = "gallery";
+      emptyState.hidden = true;
     }
 
-    function renderGallery() {
+    function renderSingleImage(imageData) {
+      gallery.classList.add("single");
+
+      const item = document.createElement("article");
+      item.className = "single-item";
+
+      const img = document.createElement("img");
+      img.src = imageData.url;
+      img.alt = imageData.alt;
+      img.referrerPolicy = "no-referrer";
+
+      item.appendChild(img);
+      gallery.appendChild(item);
+    }
+
+    function createRow(items, rowHeight, isLastRow = false) {
+      const row = document.createElement("div");
+      row.className = "gallery-row";
+
+      items.forEach((imageData) => {
+        const width = rowHeight * imageData.aspectRatio;
+
+        const item = document.createElement("article");
+        item.className = "item";
+        item.style.width = `${width}px`;
+        item.style.height = `${rowHeight}px`;
+
+        const img = document.createElement("img");
+        img.src = imageData.url;
+        img.alt = imageData.alt;
+        img.loading = "lazy";
+        img.referrerPolicy = "no-referrer";
+
+        item.appendChild(img);
+        row.appendChild(item);
+      });
+
+      if (isLastRow) {
+        row.style.justifyContent = "flex-start";
+      }
+
+      return row;
+    }
+
+    function layoutJustified(images) {
+      clearGallery();
+
+      if (images.length === 0) {
+        emptyState.hidden = false;
+        return;
+      }
+
+      if (images.length === 1) {
+        renderSingleImage(images[0]);
+        return;
+      }
+
+      const styles = getComputedStyle(document.documentElement);
+      const gap = parseFloat(styles.getPropertyValue("--gap")) || 12;
+      const pagePadding = parseFloat(styles.getPropertyValue("--page-padding")) || 16;
+      const targetRowHeight = parseFloat(styles.getPropertyValue("--target-row-height")) || 240;
+
+      const containerWidth = Math.max(gallery.clientWidth - pagePadding * 2, 100);
+      const rows = [];
+      let currentRow = [];
+      let currentAspectSum = 0;
+
+      for (const image of images) {
+        currentRow.push(image);
+        currentAspectSum += image.aspectRatio;
+
+        const totalGap = gap * (currentRow.length - 1);
+        const calculatedRowHeight = (containerWidth - totalGap) / currentAspectSum;
+
+        if (calculatedRowHeight <= targetRowHeight) {
+          rows.push({
+            items: currentRow,
+            height: calculatedRowHeight,
+            isLastRow: false
+          });
+
+          currentRow = [];
+          currentAspectSum = 0;
+        }
+      }
+
+      if (currentRow.length > 0) {
+        rows.push({
+          items: currentRow,
+          height: Math.min(targetRowHeight, (containerWidth - gap * (currentRow.length - 1)) / currentAspectSum),
+          isLastRow: true
+        });
+      }
+
+      rows.forEach((rowData) => {
+        gallery.appendChild(createRow(rowData.items, rowData.height, rowData.isLastRow));
+      });
+    }
+
+    let loadedImages = [];
+
+    async function renderGallery() {
+      clearGallery();
+
       const urls = getImageUrls();
 
       if (urls.length === 0) {
@@ -102,31 +262,31 @@
         return;
       }
 
-      urls.forEach((url, index) => {
-        const item = document.createElement("article");
-        item.className = "item";
+      const results = await Promise.allSettled(
+        urls.map((url, index) => loadImage(url, index))
+      );
 
-        const image = document.createElement("img");
-        image.src = url;
-        image.alt = `Gallery image ${index + 1}`;
-        image.loading = "lazy";
-        image.referrerPolicy = "no-referrer";
+      loadedImages = results
+        .filter((result) => result.status === "fulfilled")
+        .map((result) => result.value);
 
-        image.addEventListener("load", () => resizeGridItem(item));
+      if (loadedImages.length === 0) {
+        emptyState.hidden = false;
+        return;
+      }
 
-        image.addEventListener("error", () => {
-          item.remove();
-          if (gallery.children.length === 0) {
-            emptyState.hidden = false;
-          }
-        });
-
-        item.appendChild(image);
-        gallery.appendChild(item);
-      });
+      layoutJustified(loadedImages);
     }
 
-    window.addEventListener("resize", layoutAllItems);
+    let resizeTimer = null;
+    window.addEventListener("resize", () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (loadedImages.length > 0) {
+          layoutJustified(loadedImages);
+        }
+      }, 100);
+    });
 
     renderGallery();
   </script>
